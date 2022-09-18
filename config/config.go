@@ -52,7 +52,7 @@ func Get() (*Config, error) {
 		MaxAloneTime:        maxAloneTime,
 		MaxSilentDuration:   maxSilentDuration,
 	}
-	fmt.Println(cfg)
+	_cfg = cfg
 
 	return cfg, nil
 }
