@@ -38,7 +38,7 @@ func (b *bot) JoinGoogleMeet() {
 	time.Sleep(time.Hour)
 }
 
-func getMeetingType(url string) meetingType {
+func GetMeetingType(url string) meetingType {
 	if strings.Contains(url, "zoom.us") {
 		return Zoom
 	}
@@ -56,7 +56,7 @@ func getMeetingType(url string) meetingType {
 
 func New() *bot {
 	cfg, _ := config.Get()
-	type_ := getMeetingType(cfg.MeetingUrl)
+	type_ := GetMeetingType(cfg.MeetingUrl)
 
 	if type_ == InvalidType {
 		return nil
@@ -76,7 +76,6 @@ func New() *bot {
 		Set("no-first-run").
 		Set("no-sandbox").
 		Set("start-maximized").
-		Set("window-size", "1920,1080").
 		Set("disable-blink-features", "AutomationControlled").
 		Set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.0.0 Safari/537.36").
 		MustLaunch()
