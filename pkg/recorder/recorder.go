@@ -2,8 +2,8 @@ package recorder
 
 import (
 	"fmt"
-	"github.com/dunkbing/meeting-bot/display"
-	"github.com/dunkbing/meeting-bot/pipeline"
+	"github.com/dunkbing/meeting-bot/pkg/display"
+	pipeline2 "github.com/dunkbing/meeting-bot/pkg/pipeline"
 	"github.com/sirupsen/logrus"
 	"sync"
 	"time"
@@ -13,7 +13,7 @@ type Recorder struct {
 	ID string
 
 	display  *display.Display
-	pipeline *pipeline.Pipeline
+	pipeline *pipeline2.Pipeline
 	abort    chan struct{}
 
 	isTemplate bool
@@ -49,12 +49,12 @@ func (r *Recorder) Run() error {
 	}
 
 	// create pipeline
-	r.pipeline, err = r.createPipeline(pipeline.Options{
+	r.pipeline, err = r.createPipeline(pipeline2.Options{
 		Width:          1024,
 		Height:         768,
 		Depth:          24,
 		Framerate:      30,
-		AudioBitrate:   200,
+		AudioBitrate:   128,
 		AudioFrequency: 44100,
 		VideoBitrate:   4500,
 		Profile:        "main",
@@ -62,25 +62,6 @@ func (r *Recorder) Run() error {
 	if err != nil {
 		logrus.Errorln("Error building pipeline", err)
 		return err
-	}
-
-	// if using template, listen for START_RECORDING and END_RECORDING messages
-	if r.isTemplate {
-		logrus.Infoln("Waiting for room to start")
-		select {
-		case <-r.display.RoomStarted():
-			logrus.Infoln("Room started")
-		case <-r.abort:
-			r.pipeline.Abort()
-			logrus.Infoln("Recording aborted while waiting for room")
-			return nil
-		}
-
-		// stop on END_RECORDING console log
-		go func(d *display.Display) {
-			<-d.RoomEnded()
-			r.Stop()
-		}(r.display)
 	}
 
 	go func() {
@@ -91,15 +72,14 @@ func (r *Recorder) Run() error {
 	// run pipeline
 	err = r.pipeline.Run()
 	if err != nil {
-		logrus.Errorln("error running pipeline", err)
 		return err
 	}
 
 	return nil
 }
 
-func (r *Recorder) createPipeline(options pipeline.Options) (*pipeline.Pipeline, error) {
-	return pipeline.NewFilePipeline(r.filename, options)
+func (r *Recorder) createPipeline(options pipeline2.Options) (*pipeline2.Pipeline, error) {
+	return pipeline2.NewFilePipeline(r.filename, options)
 }
 
 func (r *Recorder) Stop() {

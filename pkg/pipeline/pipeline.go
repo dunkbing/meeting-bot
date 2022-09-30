@@ -128,8 +128,13 @@ func (p *Pipeline) Run() error {
 		return true
 	})
 
+	if err := p.pipeline.SetState(gst.StateNull); err != nil {
+		logrus.Errorln("error set pipeline state to null", err)
+		return err
+	}
 	// set state to playing (this does not start the pipeline)
 	if err := p.pipeline.SetState(gst.StatePlaying); err != nil {
+		logrus.Errorln("error set pipeline state to playing", err)
 		return err
 	}
 

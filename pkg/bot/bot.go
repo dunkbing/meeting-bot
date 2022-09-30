@@ -1,7 +1,7 @@
 package bot
 
 import (
-	"github.com/dunkbing/meeting-bot/config"
+	"github.com/dunkbing/meeting-bot/pkg/config"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"strings"

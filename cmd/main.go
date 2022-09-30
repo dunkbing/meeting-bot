@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/dunkbing/meeting-bot/config"
-	"github.com/dunkbing/meeting-bot/recorder"
+	"github.com/dunkbing/meeting-bot/pkg/config"
+	"github.com/dunkbing/meeting-bot/pkg/recorder"
 	"github.com/sirupsen/logrus"
 	"os"
 	"os/signal"
