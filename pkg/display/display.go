@@ -26,12 +26,13 @@ func Launch() (*Display, error) {
 		startChan: make(chan struct{}),
 		endChan:   make(chan struct{}),
 	}
+	_cfg, _ := config.Get()
 
 	width, height := 1440, 900
-	if err := d.launchXvfb(":99", width, height, 24); err != nil {
+	if err := d.launchXvfb(_cfg.Display, width, height, 24); err != nil {
 		return nil, err
 	}
-	if err := d.launchChrome(width, height); err != nil {
+	if err := d.launchChrome(_cfg.Display, width, height); err != nil {
 		return nil, err
 	}
 
@@ -41,7 +42,7 @@ func Launch() (*Display, error) {
 func (d *Display) launchXvfb(display string, width, height, depth int) error {
 	dims := fmt.Sprintf("%dx%dx%d", width, height, depth)
 	logrus.Infoln("Launching xvfb.", "dims:", dims)
-	xvfb := exec.Command("Xvfb", "-ac", display, "-screen", "0", dims, "-ac", "-nolisten", "tcp")
+	xvfb := exec.Command("Xvfb", display, "-screen", "0", dims, "-ac", "-nolisten", "tcp")
 	if err := xvfb.Start(); err != nil {
 		logrus.Errorln("Error launching xvfb:", err.Error())
 		return err
@@ -50,7 +51,7 @@ func (d *Display) launchXvfb(display string, width, height, depth int) error {
 	return nil
 }
 
-func (d *Display) launchChrome(width, height int) error {
+func (d *Display) launchChrome(display string, width, height int) error {
 	logrus.Infoln("Launching chrome")
 	cfg, _ := config.Get()
 	type_ := bot.GetMeetingType(cfg.MeetingUrl)
@@ -78,6 +79,7 @@ func (d *Display) launchChrome(width, height int) error {
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-extensions", true),
 		chromedp.Flag("disable-features", "site-per-process,TranslateUI,BlinkGenPropertyTrees"),
+		//chromedp.Flag("disable-software-rasterizer", true),
 		chromedp.Flag("disable-hang-monitor", true),
 		chromedp.Flag("disable-ipc-flooding-protection", true),
 		chromedp.Flag("disable-popup-blocking", true),
@@ -96,7 +98,7 @@ func (d *Display) launchChrome(width, height int) error {
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
 		chromedp.Flag("window-position", "0,0"),
 		chromedp.Flag("window-size", fmt.Sprintf("%d,%d", width, height)),
-		chromedp.Flag("display", ":99"),
+		chromedp.Flag("display", display),
 	}
 
 	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -124,29 +126,6 @@ func (d *Display) launchChrome(width, height int) error {
 	})
 	err := chromedp.Run(ctx, chromedp.Navigate("https://www.youtube.com/watch?v=WgnFgUq_KFw"))
 	return err
-	//
-	//u := launcher.New().
-	//	Set("user-data-dir", "chrome-data").
-	//	//Set("headless").
-	//	Set("incognito").
-	//	Set("use-fake-ui-for-media-stream").
-	//	Set("autoplay-policy", "no-user-gesture-required").
-	//	Set("disable-gpu").
-	//	Set("disable-software-rasterizer").
-	//	Set("disable-dev-shm-usage").
-	//	Set("bwsi").
-	//	Set("no-first-run").
-	//	Set("no-sandbox").
-	//	Set("window-position", "0,0").
-	//	Set("window-size", fmt.Sprintf("%d,%d", width, height)).
-	//	//Set("start-maximized").
-	//	Set("disable-blink-features", "AutomationControlled").
-	//	Set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.0.0 Safari/537.36").
-	//	MustLaunch()
-	//browser := rod.New().ControlURL(u).MustConnect().NoDefaultDevice()
-	//browser.MustPage("https://www.youtube.com/watch?v=WgnFgUq_KFw")
-	//
-	//return nil
 }
 
 func (d *Display) RoomStarted() chan struct{} {
