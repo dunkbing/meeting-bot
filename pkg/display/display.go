@@ -1,17 +1,26 @@
+//go:build !test
+// +build !test
+
 package display
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/chromedp/cdproto/runtime"
-	"github.com/chromedp/chromedp"
-	"github.com/dunkbing/meeting-bot/pkg/bot"
-	"github.com/dunkbing/meeting-bot/pkg/config"
 	"github.com/sirupsen/logrus"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/chromedp/cdproto/runtime"
+	"github.com/chromedp/chromedp"
+	"github.com/dunkbing/meeting-bot/pkg/config"
+)
+
+const (
+	startRecording = "START_RECORDING"
+	endRecording   = "END_RECORDING"
 )
 
 type Display struct {
@@ -21,44 +30,35 @@ type Display struct {
 	endChan      chan struct{}
 }
 
-func Launch() (*Display, error) {
+func Launch(conf *config.Config, url string, isTemplate bool) (*Display, error) {
 	d := &Display{
 		startChan: make(chan struct{}),
 		endChan:   make(chan struct{}),
 	}
-	_cfg, _ := config.Get()
 
-	width, height := 1440, 900
-	if err := d.launchXvfb(_cfg.Display, width, height, 24); err != nil {
+	if err := d.launchXvfb(conf.Display, conf.Defaults.Width, conf.Defaults.Height, conf.Defaults.Depth); err != nil {
 		return nil, err
 	}
-	if err := d.launchChrome(_cfg.Display, width, height); err != nil {
+	if err := d.launchChrome(conf, url, conf.Defaults.Width, conf.Defaults.Height, isTemplate); err != nil {
 		return nil, err
 	}
 
 	return d, nil
 }
 
-func (d *Display) launchXvfb(display string, width, height, depth int) error {
+func (d *Display) launchXvfb(display string, width, height, depth int32) error {
 	dims := fmt.Sprintf("%dx%dx%d", width, height, depth)
-	logrus.Infoln("Launching xvfb.", "dims:", dims)
+	logrus.Debug("launching xvfb", "dims", dims)
 	xvfb := exec.Command("Xvfb", display, "-screen", "0", dims, "-ac", "-nolisten", "tcp")
 	if err := xvfb.Start(); err != nil {
-		logrus.Errorln("Error launching xvfb:", err.Error())
 		return err
 	}
 	d.xvfb = xvfb
 	return nil
 }
 
-func (d *Display) launchChrome(display string, width, height int) error {
-	logrus.Infoln("Launching chrome")
-	cfg, _ := config.Get()
-	type_ := bot.GetMeetingType(cfg.MeetingUrl)
-
-	if type_ == bot.InvalidType {
-		return nil
-	}
+func (d *Display) launchChrome(conf *config.Config, url string, width, height int32, isTemplate bool) error {
+	logrus.Debug("launching chrome", "url", url)
 
 	opts := []chromedp.ExecAllocatorOption{
 		chromedp.NoFirstRun,
@@ -79,7 +79,6 @@ func (d *Display) launchChrome(display string, width, height int) error {
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-extensions", true),
 		chromedp.Flag("disable-features", "site-per-process,TranslateUI,BlinkGenPropertyTrees"),
-		//chromedp.Flag("disable-software-rasterizer", true),
 		chromedp.Flag("disable-hang-monitor", true),
 		chromedp.Flag("disable-ipc-flooding-protection", true),
 		chromedp.Flag("disable-popup-blocking", true),
@@ -98,7 +97,14 @@ func (d *Display) launchChrome(display string, width, height int) error {
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
 		chromedp.Flag("window-position", "0,0"),
 		chromedp.Flag("window-size", fmt.Sprintf("%d,%d", width, height)),
-		chromedp.Flag("display", display),
+		chromedp.Flag("display", conf.Display),
+	}
+
+	if conf.Insecure {
+		opts = append(opts,
+			chromedp.Flag("disable-web-security", true),
+			chromedp.Flag("allow-running-insecure-content", true),
+		)
 	}
 
 	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -118,13 +124,36 @@ func (d *Display) launchChrome(display string, width, height int) error {
 				msg := fmt.Sprint(val)
 				args = append(args, msg)
 				switch msg {
+				case startRecording:
+					close(d.startChan)
+				case endRecording:
+					close(d.endChan)
 				default:
 				}
 			}
-			logrus.Debugln(fmt.Sprintf("chrome console %s", ev.Type.String()), "msg", strings.Join(args, " "))
+			logrus.Debug(fmt.Sprintf("chrome console %s", ev.Type.String()), "msg", strings.Join(args, " "))
 		}
 	})
-	err := chromedp.Run(ctx, chromedp.Navigate("https://www.youtube.com/watch?v=WgnFgUq_KFw"))
+
+	var err error
+	var errString string
+	if isTemplate {
+		err = chromedp.Run(ctx,
+			chromedp.Navigate(url),
+			chromedp.Evaluate(`
+				if (document.querySelector('div.error')) {
+					document.querySelector('div.error').innerText;
+				} else {
+					''
+				}`, &errString,
+			),
+		)
+	} else {
+		err = chromedp.Run(ctx, chromedp.Navigate(url))
+	}
+	if err == nil && errString != "" {
+		err = errors.New(errString)
+	}
 	return err
 }
 
@@ -145,7 +174,7 @@ func (d *Display) Close() {
 	if d.xvfb != nil {
 		err := d.xvfb.Process.Signal(os.Interrupt)
 		if err != nil {
-			logrus.Errorln("failed to kill xvfb", err)
+			logrus.Error("failed to kill xvfb", err)
 		}
 		d.xvfb = nil
 	}

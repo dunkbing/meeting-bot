@@ -1,22 +1,13 @@
-package pipeline
+//go:build !test
+
+package gst
 
 import (
-	"errors"
 	"fmt"
-	"github.com/sirupsen/logrus"
+	"github.com/dunkbing/meeting-bot/pkg/config"
+
 	"github.com/tinyzimmer/go-gst/gst"
 )
-
-type Options struct {
-	Width          int
-	Height         int
-	Depth          int
-	Framerate      int
-	AudioBitrate   int
-	AudioFrequency int
-	VideoBitrate   int
-	Profile        string
-}
 
 type InputBin struct {
 	isStream      bool
@@ -28,8 +19,8 @@ type InputBin struct {
 	mux           *gst.Element
 }
 
-func newInputBin(isStream bool, options Options) (*InputBin, error) {
-	// region audio elements
+func newInputBin(isStream bool, options *config.Config) (*InputBin, error) {
+	// create audio elements
 	pulseSrc, err := gst.NewElement("pulsesrc")
 	if err != nil {
 		return nil, err
@@ -45,17 +36,17 @@ func newInputBin(isStream bool, options Options) (*InputBin, error) {
 		return nil, err
 	}
 	err = audioCapsFilter.SetProperty("caps", gst.NewCapsFromString(
-		fmt.Sprintf("audio/x-raw,format=S16LE,layout=interleaved,rate=%d,channels=2", options.AudioFrequency),
+		fmt.Sprintf("audio/x-raw,format=S16LE,layout=interleaved,rate=%d,channels=2", options.Defaults.AudioFrequency),
 	))
 	if err != nil {
 		return nil, err
 	}
 
-	faac, err := gst.NewElement("lamemp3enc")
+	faac, err := gst.NewElement("faac")
 	if err != nil {
 		return nil, err
 	}
-	err = faac.SetProperty("bitrate", options.AudioBitrate)
+	err = faac.SetProperty("bitrate", int(options.Defaults.AudioBitrate*1000))
 	if err != nil {
 		return nil, err
 	}
@@ -67,14 +58,13 @@ func newInputBin(isStream bool, options Options) (*InputBin, error) {
 	if err = audioQueue.SetProperty("max-size-time", uint64(3e9)); err != nil {
 		return nil, err
 	}
-	// endregion
 
-	// region video elements
+	// create video elements
 	xImageSrc, err := gst.NewElement("ximagesrc")
 	if err != nil {
 		return nil, err
 	}
-	err = xImageSrc.SetProperty("use-damage", true)
+	err = xImageSrc.SetProperty("use-damage", false)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +83,7 @@ func newInputBin(isStream bool, options Options) (*InputBin, error) {
 		return nil, err
 	}
 	err = framerateCaps.SetProperty("caps", gst.NewCapsFromString(
-		fmt.Sprintf("video/x-raw,framerate=%d/1", options.Framerate),
+		fmt.Sprintf("video/x-raw,framerate=%d/1", options.Defaults.Framerate),
 	))
 	if err != nil {
 		return nil, err
@@ -103,7 +93,7 @@ func newInputBin(isStream bool, options Options) (*InputBin, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = x264Enc.SetProperty("bitrate", uint(options.VideoBitrate)); err != nil {
+	if err = x264Enc.SetProperty("bitrate", uint(options.Defaults.VideoBitrate)); err != nil {
 		return nil, err
 	}
 	x264Enc.SetArg("speed-preset", "veryfast")
@@ -114,7 +104,11 @@ func newInputBin(isStream bool, options Options) (*InputBin, error) {
 		return nil, err
 	}
 	err = profileCaps.SetProperty("caps", gst.NewCapsFromString(
-		fmt.Sprintf("video/x-h264,profile=%s,framerate=%d/1", options.Profile, options.Framerate),
+		fmt.Sprintf(
+			"video/x-h264,profile=%s,framerate=%d/1",
+			options.Defaults.Profile,
+			options.Defaults.Framerate,
+		),
 	))
 	if err != nil {
 		return nil, err
@@ -127,7 +121,6 @@ func newInputBin(isStream bool, options Options) (*InputBin, error) {
 	if err = videoQueue.SetProperty("max-size-time", uint64(3e9)); err != nil {
 		return nil, err
 	}
-	// endregion
 
 	// create mux
 	var mux *gst.Element
@@ -168,7 +161,7 @@ func newInputBin(isStream bool, options Options) (*InputBin, error) {
 	// create ghost pad
 	ghostPad := gst.NewGhostPad("src", mux.GetStaticPad("src"))
 	if !bin.AddPad(ghostPad.Pad) {
-		return nil, errors.New("failed to add ghost pad to bin")
+		return nil, ErrGhostPadFailed
 	}
 
 	return &InputBin{
@@ -185,19 +178,16 @@ func newInputBin(isStream bool, options Options) (*InputBin, error) {
 func (b *InputBin) Link() error {
 	// link audio elements
 	if err := gst.ElementLinkMany(b.audioElements...); err != nil {
-		logrus.Errorln("Error link audio elements")
 		return err
 	}
 
 	// link video elements
 	if err := gst.ElementLinkMany(b.videoElements...); err != nil {
-		logrus.Errorln("Error link video elements")
 		return err
 	}
 
 	// link audio and video queues to mux
-	var muxAudioPad *gst.Pad
-	var muxVideoPad *gst.Pad
+	var muxAudioPad, muxVideoPad *gst.Pad
 	if b.isStream {
 		muxAudioPad = b.mux.GetRequestPad("audio")
 		muxVideoPad = b.mux.GetRequestPad("video")

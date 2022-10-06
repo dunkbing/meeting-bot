@@ -1,22 +1,25 @@
-package pipeline
+//go:build !test
+// +build !test
+
+package gst
 
 import (
 	"errors"
 	"fmt"
+	"github.com/dunkbing/meeting-bot/pkg/config"
 	"github.com/sirupsen/logrus"
-	"github.com/tinyzimmer/go-glib/glib"
-	"github.com/tinyzimmer/go-gst/gst"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tinyzimmer/go-glib/glib"
+	"github.com/tinyzimmer/go-gst/gst"
 )
 
-func requireLink(src, sink *gst.Pad) error {
-	if linkReturn := src.Link(sink); linkReturn != gst.PadLinkOK {
-		return fmt.Errorf("pad link: %s", linkReturn.String())
-	}
-	return nil
-}
+// gst.Init needs to be called before using gst but after gst package loads
+var initialized = false
+
+const pipelineSource = "gst"
 
 type Pipeline struct {
 	mu sync.Mutex
@@ -34,9 +37,25 @@ type Pipeline struct {
 	err error
 }
 
-var initialized = false
+func NewRtmpPipeline(urls []string, options *config.Config) (*Pipeline, error) {
+	if !initialized {
+		gst.Init(nil)
+		initialized = true
+	}
 
-func NewFilePipeline(filename string, options Options) (*Pipeline, error) {
+	input, err := newInputBin(true, options)
+	if err != nil {
+		return nil, err
+	}
+	output, err := newRtmpOutputBin(urls)
+	if err != nil {
+		return nil, err
+	}
+
+	return newPipeline(input, output)
+}
+
+func NewFilePipeline(filename string, options *config.Config) (*Pipeline, error) {
 	if !initialized {
 		gst.Init(nil)
 		initialized = true
@@ -55,19 +74,22 @@ func NewFilePipeline(filename string, options Options) (*Pipeline, error) {
 }
 
 func newPipeline(input *InputBin, output *OutputBin) (*Pipeline, error) {
-	// elements must be added to pipeline before linking
-	pipeline, err := gst.NewPipeline("pipeline")
+	// elements must be added to gst before linking
+	pipeline, err := gst.NewPipeline("gst")
 	if err != nil {
 		return nil, err
 	}
 
-	// add bins to pipeline
+	// add bins to gst
 	if err = pipeline.AddMany(input.bin.Element, output.bin.Element); err != nil {
 		return nil, err
 	}
 
 	// link bin elements
 	if err = input.Link(); err != nil {
+		return nil, err
+	}
+	if err = output.Link(); err != nil {
 		return nil, err
 	}
 
@@ -85,29 +107,25 @@ func newPipeline(input *InputBin, output *OutputBin) (*Pipeline, error) {
 	}, nil
 }
 
-const pipelineSource = "pipeline"
-
 func (p *Pipeline) Run() error {
 	// add watch
 	p.loop = glib.NewMainLoop(glib.MainContextDefault(), false)
-	bus := p.pipeline.GetPipelineBus()
-	bus.AddWatch(func(msg *gst.Message) bool {
+	p.pipeline.GetPipelineBus().AddWatch(func(msg *gst.Message) bool {
 		switch msg.Type() {
 		case gst.MessageEOS:
 			// EOS received - close and return
-			logrus.Infoln("EOS received, stopping pipeline")
+			logrus.Debug("EOS received, stopping gst")
 			_ = p.pipeline.BlockSetState(gst.StateNull)
-			logrus.Infoln("Pipeline stopped")
+			logrus.Debug("gst stopped")
 
 			p.loop.Quit()
 			return false
 		case gst.MessageError:
 			// handle error if possible, otherwise close and return
 			gErr := msg.ParseError()
-			p.err = gErr
 			err, handled := p.handleError(gErr)
 			if handled {
-				logrus.Infoln("error handled", errors.New(gErr.Error()))
+				logrus.Error("error handled", errors.New(gErr.Error()))
 			} else {
 				p.err = err
 				p.loop.Quit()
@@ -122,20 +140,15 @@ func (p *Pipeline) Run() error {
 				}
 			}
 		default:
-			logrus.Infoln("default", msg.Type(), "message", msg.String())
+			logrus.Debug(msg.String())
 		}
 
 		return true
 	})
 
-	if err := p.pipeline.SetState(gst.StateNull); err != nil {
-		logrus.Errorln("error set pipeline state to null", err)
-		return err
-	}
-	// set state to playing (this does not start the pipeline)
+	// set state to playing (this does not start the gst)
 	if err := p.pipeline.SetState(gst.StatePlaying); err != nil {
-		logrus.Errorln("error set pipeline state to playing", err)
-		return err
+		//return err
 	}
 
 	// run main loop
@@ -152,6 +165,15 @@ func (p *Pipeline) GetStartTime() time.Time {
 	}
 }
 
+func (p *Pipeline) AddOutput(url string) error {
+	return p.output.AddRtmpSink(url)
+}
+
+func (p *Pipeline) RemoveOutput(url string) error {
+	return p.output.RemoveRtmpSink(url)
+}
+
+// Abort can only be called before the gst has started
 func (p *Pipeline) Abort() {
 	select {
 	case <-p.closed:
@@ -161,7 +183,7 @@ func (p *Pipeline) Abort() {
 	}
 }
 
-// Close waits for the pipeline to start before closing
+// Close waits for the gst to start before closing
 func (p *Pipeline) Close() {
 	select {
 	case <-p.closed:
@@ -169,13 +191,58 @@ func (p *Pipeline) Close() {
 	case <-p.started:
 		close(p.closed)
 
-		logrus.Debugln("Sending EOS to pipeline")
+		logrus.Debug("sending EOS to gst")
 		p.pipeline.SendEvent(gst.NewEOSEvent())
 	}
 }
 
+// handleError returns true if the error has been handled, false if the pipeline should quit
+func (p *Pipeline) handleError(gErr *gst.GError) (error, bool) {
+	err := errors.New(gErr.Error())
+
+	element, reason, ok := parseDebugInfo(gErr.DebugString())
+	if !ok {
+		logrus.Error("failed to parse gst error", err, "debug", gErr.DebugString())
+		return err, false
+	}
+
+	switch reason {
+	case GErrNoURI, GErrCouldNotConnect:
+		// bad URI or could not connect. Remove rtmp output
+		if err := p.output.RemoveSinkByName(element); err != nil {
+			logrus.Error("failed to remove sink", err)
+			return err, false
+		}
+		p.removed[element] = true
+		return err, true
+	case GErrFailedToStart:
+		// returned after an added rtmp sink failed to start
+		// should be preceded by a GErrNoURI on the same sink
+		handled := p.removed[element]
+		if !handled {
+			logrus.Error("element failed to start", err)
+		}
+		return err, handled
+	case GErrStreamingStopped:
+		// returned by queue after rtmp sink could not connect
+		// should be preceded by a GErrCouldNotConnect on associated sink
+		handled := false
+		if strings.HasPrefix(element, "queue_") {
+			handled = p.removed[fmt.Sprint("sink_", element[6:])]
+		}
+		if !handled {
+			logrus.Error("streaming sink stopped", err)
+		}
+		return err, handled
+	default:
+		// input failure or file write failure. Fatal
+		logrus.Error("gst error", err, "debug", gErr.DebugString())
+		return err, false
+	}
+}
+
 // Debug info comes in the following format:
-// file.c(line): method_name (): /GstPipeline:pipeline/GstBin:bin_name/GstElement:element_name:\nError message
+// file.c(line): method_name (): /GstPipeline:gst/GstBin:bin_name/GstElement:element_name:\nError message
 func parseDebugInfo(debug string) (element string, reason string, ok bool) {
 	end := strings.Index(debug, ":\n")
 	if end == -1 {
@@ -194,42 +261,9 @@ func parseDebugInfo(debug string) (element string, reason string, ok bool) {
 	return
 }
 
-// handleError returns true if the error has been handled, false if the pipeline should quit
-func (p *Pipeline) handleError(gErr *gst.GError) (error, bool) {
-	err := errors.New(gErr.Error())
-
-	element, reason, ok := parseDebugInfo(gErr.DebugString())
-	if !ok {
-		logrus.Errorln("Failed to parse pipeline error", err, "debug", gErr.DebugString())
-		return err, false
+func requireLink(src, sink *gst.Pad) error {
+	if linkReturn := src.Link(sink); linkReturn != gst.PadLinkOK {
+		return fmt.Errorf("pad link: %s", linkReturn.String())
 	}
-
-	switch reason {
-	case GErrNoURI, GErrCouldNotConnect:
-		logrus.Errorln("Case gerrnouri", err)
-		return err, true
-	case GErrFailedToStart:
-		// returned after an added rtmp sink failed to start
-		// should be preceded by a GErrNoURI on the same sink
-		handled := p.removed[element]
-		if !handled {
-			logrus.Errorln("Element failed to start", err)
-		}
-		return err, handled
-	case GErrStreamingStopped:
-		// returned by queue after rtmp sink could not connect
-		// should be preceded by a GErrCouldNotConnect on associated sink
-		handled := false
-		if strings.HasPrefix(element, "queue_") {
-			handled = p.removed[fmt.Sprint("sink_", element[6:])]
-		}
-		if !handled {
-			logrus.Errorln("Streaming sink stopped", err)
-		}
-		return err, handled
-	default:
-		// input failure or file write failure. Fatal
-		logrus.Errorln("Pipeline error", err, "debug", gErr.DebugString())
-		return err, false
-	}
+	return nil
 }
