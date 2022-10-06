@@ -25,7 +25,7 @@ term_handler() {
 # On callback, kill the last background process, which is `tail -f /dev/null` and execute the specified handler
 trap 'kill ${!}; term_handler' SIGTERM
 
-# Run bot
+# Run service
 XDG_RUNTIME_DIR=$PATH:~/.cache/xdgr ./meeting-bot &
 pid="$!"
 
