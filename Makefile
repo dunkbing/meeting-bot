@@ -54,11 +54,9 @@ help:
 	@echo "    build"
 	@echo "        Build a docker production image."
 	@echo "    test"
-	@echo "        Run py.test"
+	@echo "        Run tests"
 	@echo "    clean"
-	@echo "        Remove python artifacts."
-	@echo "    isort"
-	@echo "        Sort import statements."
+	@echo "        Clean project."
 
 clean:
 	rm -fr ./bin
@@ -71,10 +69,9 @@ isort:
 	sh -c "isort --skip-glob=.tox --recursive src/ "
 
 docker-gstreamer:
-	docker pull ubuntu:22.04
-	docker build -t $(DOCKER_IMAGE):$(GSTREAMER_VERSION)-base --build-arg GSTREAMER_VERSION=$(GSTREAMER_VERSION) -f build/gstreamer/Dockerfile-base ./build/gstreamer
-	docker build -t $(DOCKER_IMAGE):$(GSTREAMER_VERSION)-dev --build-arg GSTREAMER_VERSION=$(GSTREAMER_VERSION) -f build/gstreamer/Dockerfile-dev ./build/gstreamer
-	docker build -t $(DOCKER_IMAGE):$(GSTREAMER_VERSION)-prod --build-arg GSTREAMER_VERSION=$(GSTREAMER_VERSION) -f build/gstreamer/Dockerfile-prod ./build/gstreamer
+	docker build -t $(DOCKER_IMAGE):gst-$(GSTREAMER_VERSION)-base --build-arg GSTREAMER_VERSION=$(GSTREAMER_VERSION) -f build/gstreamer/Dockerfile-base ./build/gstreamer
+	docker build -t $(DOCKER_IMAGE):gst-$(GSTREAMER_VERSION)-dev --build-arg GSTREAMER_VERSION=$(GSTREAMER_VERSION) -f build/gstreamer/Dockerfile-dev ./build/gstreamer
+	docker build -t $(DOCKER_IMAGE):gst-$(GSTREAMER_VERSION)-prod --build-arg GSTREAMER_VERSION=$(GSTREAMER_VERSION) -f build/gstreamer/Dockerfile-prod ./build/gstreamer
 
 docker-prod:
 	docker build \

@@ -5,6 +5,7 @@ package gst
 
 import (
 	"errors"
+	"github.com/dunkbing/meeting-bot/pkg/config"
 	"time"
 )
 

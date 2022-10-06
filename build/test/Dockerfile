@@ -1,4 +1,4 @@
-FROM livekit/gstreamer:1.18.5-dev
+FROM dunkbing/gstreamer:1.18.5-dev
 
 WORKDIR /workspace
 
