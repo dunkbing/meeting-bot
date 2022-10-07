@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"github.com/dunkbing/meeting-bot/pkg/config"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,16 +13,32 @@ import (
 	"github.com/dunkbing/meeting-bot/pkg/recorder"
 )
 
-func runRecorder(c *cli.Context) error {
-	conf, err := getConfig(c)
-	if err != nil {
-		return err
+func getConfig(configFile, configBody string) (*config.Config, error) {
+	if configBody == "" {
+		if configFile != "" {
+			content, err := os.ReadFile(configFile)
+			if err != nil {
+				return nil, err
+			}
+			configBody = string(content)
+		} else {
+			return nil, errors.New("missing config")
+		}
 	}
+
+	config.SetConfigBody(configBody)
+	return config.GetConfig()
+}
+
+func runRecorder(c *cli.Context) error {
+	configFile := c.String("config")
+	configBody := c.String("config-body")
+	_, err := getConfig(configFile, configBody)
 	if err != nil {
 		return err
 	}
 
-	rec := recorder.NewRecorder(conf, "standalone")
+	rec := recorder.NewRecorder("standalone")
 
 	stopChan := make(chan os.Signal, 1)
 	signal.Notify(stopChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
@@ -32,7 +49,6 @@ func runRecorder(c *cli.Context) error {
 	}()
 
 	res := rec.Run()
-	//service.LogResult(res)
 	if res.Error == "" {
 		return nil
 	}

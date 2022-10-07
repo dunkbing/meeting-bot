@@ -1,6 +1,6 @@
 ARG GSTREAMER_VERSION
 
-FROM gstreamer:${GSTREAMER_VERSION}-base
+FROM dunkbing/meeting-bot:gst-${GSTREAMER_VERSION}-base
 
 ENV DEBUG=false
 ENV OPTIMIZATIONS=true

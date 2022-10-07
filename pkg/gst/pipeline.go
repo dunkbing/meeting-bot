@@ -37,13 +37,13 @@ type Pipeline struct {
 	err error
 }
 
-func NewRtmpPipeline(urls []string, options *config.Config) (*Pipeline, error) {
+func NewRtmpPipeline(urls []string) (*Pipeline, error) {
 	if !initialized {
 		gst.Init(nil)
 		initialized = true
 	}
 
-	input, err := newInputBin(true, options)
+	input, err := newVideoInputBin(true)
 	if err != nil {
 		return nil, err
 	}
@@ -55,17 +55,24 @@ func NewRtmpPipeline(urls []string, options *config.Config) (*Pipeline, error) {
 	return newPipeline(input, output)
 }
 
-func NewFilePipeline(filename string, options *config.Config) (*Pipeline, error) {
+func NewFilePipeline(filepath string) (*Pipeline, error) {
+	conf, _ := config.GetConfig()
 	if !initialized {
 		gst.Init(nil)
 		initialized = true
 	}
 
-	input, err := newInputBin(false, options)
+	var input *InputBin
+	var err error
+	if conf.Bot.Type == "video" {
+		input, err = newVideoInputBin(false)
+	} else {
+		input, err = newAudioInputBin(false)
+	}
 	if err != nil {
 		return nil, err
 	}
-	output, err := newFileOutputBin(filename)
+	output, err := newFileOutputBin(filepath)
 	if err != nil {
 		return nil, err
 	}

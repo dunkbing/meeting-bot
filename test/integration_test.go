@@ -26,7 +26,8 @@ api_secret: secret
 ws_url: ws://localhost:7880`
 
 func TestRecorder(t *testing.T) {
-	conf, err := config.NewConfig(confString)
+	config.SetConfigBody(confString)
+	conf, err := config.GetConfig()
 	require.NoError(t, err)
 
 	for _, test := range []struct {

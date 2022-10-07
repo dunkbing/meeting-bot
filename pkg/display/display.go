@@ -30,26 +30,27 @@ type Display struct {
 	endChan      chan struct{}
 }
 
-func Launch(conf *config.Config, url string, isTemplate bool) (*Display, error) {
+func Launch() (*Display, error) {
 	d := &Display{
 		startChan: make(chan struct{}),
 		endChan:   make(chan struct{}),
 	}
+	conf, _ := config.GetConfig()
 
-	if err := d.launchXvfb(conf.Display, conf.Defaults.Width, conf.Defaults.Height, conf.Defaults.Depth); err != nil {
+	if err := d.launchXvfb(conf.Screen); err != nil {
 		return nil, err
 	}
-	if err := d.launchChrome(conf, url, conf.Defaults.Width, conf.Defaults.Height, isTemplate); err != nil {
+	if err := d.launchChrome(conf.Screen, conf.Bot.MeetingUrl); err != nil {
 		return nil, err
 	}
 
 	return d, nil
 }
 
-func (d *Display) launchXvfb(display string, width, height, depth int32) error {
-	dims := fmt.Sprintf("%dx%dx%d", width, height, depth)
+func (d *Display) launchXvfb(screenConf config.ScreenConfig) error {
+	dims := fmt.Sprintf("%dx%dx%d", screenConf.Width, screenConf.Height, screenConf.Depth)
 	logrus.Debug("launching xvfb", "dims", dims)
-	xvfb := exec.Command("Xvfb", display, "-screen", "0", dims, "-ac", "-nolisten", "tcp")
+	xvfb := exec.Command("Xvfb", screenConf.Display, "-screen", "0", dims, "-ac", "-nolisten", "tcp")
 	if err := xvfb.Start(); err != nil {
 		return err
 	}
@@ -57,7 +58,9 @@ func (d *Display) launchXvfb(display string, width, height, depth int32) error {
 	return nil
 }
 
-func (d *Display) launchChrome(conf *config.Config, url string, width, height int32, isTemplate bool) error {
+func (d *Display) launchChrome(screenConf config.ScreenConfig, url string) error {
+	//conf, _ := config.GetConfig()
+	width, height := screenConf.Width, screenConf.Height
 	logrus.Debug("launching chrome", "url", url)
 
 	opts := []chromedp.ExecAllocatorOption{
@@ -97,10 +100,10 @@ func (d *Display) launchChrome(conf *config.Config, url string, width, height in
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
 		chromedp.Flag("window-position", "0,0"),
 		chromedp.Flag("window-size", fmt.Sprintf("%d,%d", width, height)),
-		chromedp.Flag("display", conf.Display),
+		chromedp.Flag("display", screenConf.Display),
 	}
 
-	if conf.Insecure {
+	if screenConf.Insecure {
 		opts = append(opts,
 			chromedp.Flag("disable-web-security", true),
 			chromedp.Flag("allow-running-insecure-content", true),
@@ -137,20 +140,7 @@ func (d *Display) launchChrome(conf *config.Config, url string, width, height in
 
 	var err error
 	var errString string
-	if isTemplate {
-		err = chromedp.Run(ctx,
-			chromedp.Navigate(url),
-			chromedp.Evaluate(`
-				if (document.querySelector('div.error')) {
-					document.querySelector('div.error').innerText;
-				} else {
-					''
-				}`, &errString,
-			),
-		)
-	} else {
-		err = chromedp.Run(ctx, chromedp.Navigate(url))
-	}
+	err = chromedp.Run(ctx, chromedp.Navigate(url))
 	if err == nil && errString != "" {
 		err = errors.New(errString)
 	}

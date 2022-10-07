@@ -1,11 +1,9 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
-	"github.com/dunkbing/meeting-bot/pkg/config"
 	"github.com/urfave/cli/v2"
 )
 
@@ -22,7 +20,7 @@ func main() {
 			&cli.StringFlag{
 				Name:    "config-body",
 				Usage:   "Default LiveKit recording config in JSON, typically passed in as an env var in a container",
-				EnvVars: []string{"LIVEKIT_RECORDER_CONFIG"},
+				EnvVars: []string{"CONFIG_BODY"},
 			},
 			&cli.StringFlag{
 				Name:  "request",
@@ -45,22 +43,4 @@ func main() {
 
 func run(c *cli.Context) error {
 	return runRecorder(c)
-}
-
-func getConfig(c *cli.Context) (*config.Config, error) {
-	configFile := c.String("config")
-	configBody := c.String("config-body")
-	if configBody == "" {
-		if configFile != "" {
-			content, err := os.ReadFile(configFile)
-			if err != nil {
-				return nil, err
-			}
-			configBody = string(content)
-		} else {
-			return nil, errors.New("missing config")
-		}
-	}
-
-	return config.NewConfig(configBody)
 }

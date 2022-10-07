@@ -37,6 +37,7 @@ type StartRecordingRequestRtmp struct {
 	Rtmp RtmpOutput
 	Urls []string
 }
+
 type RecordingOptions struct {
 	Width          int32  // default 1920
 	Height         int32  // default 1080
@@ -62,28 +63,27 @@ type StartRecordingRequest struct {
 type Recorder struct {
 	ID string
 
-	conf     *config.Config
 	req      *StartRecordingRequest
 	display  *display.Display
 	pipeline *gst.Pipeline
 	abort    chan struct{}
 
-	isTemplate bool
-	url        string
-	filename   string
-	filepath   string
+	filepath string
 
-	// result info
 	mu        sync.Mutex
 	result    *RecordingInfo
 	startedAt map[string]time.Time
 }
 
-func NewRecorder(conf *config.Config, recordingID string) *Recorder {
+func NewRecorder(recordingID string) *Recorder {
+	conf, _ := config.GetConfig()
 	return &Recorder{
-		ID:    recordingID,
-		conf:  conf,
+		ID: recordingID,
+
 		abort: make(chan struct{}),
+
+		filepath: fmt.Sprintf("%s/%s", conf.FileOutput.FileDir, conf.FileOutput.FileName),
+
 		result: &RecordingInfo{
 			Id: recordingID,
 		},
@@ -94,11 +94,10 @@ func NewRecorder(conf *config.Config, recordingID string) *Recorder {
 // Run blocks until completion
 func (r *Recorder) Run() *RecordingInfo {
 	var err error
-
-	fmt.Println("config", r.conf)
+	conf, _ := config.GetConfig()
 
 	// launch display
-	r.display, err = display.Launch(r.conf, "https://www.youtube.com/watch?v=WgnFgUq_KFw", r.isTemplate)
+	r.display, err = display.Launch()
 	if err != nil {
 		logrus.Error("error launching display", err)
 		r.result.Error = err.Error()
@@ -108,29 +107,9 @@ func (r *Recorder) Run() *RecordingInfo {
 	// create gst
 	r.pipeline, err = r.createPipeline(r.req)
 	if err != nil {
-		logrus.Error("error building gst", err)
+		logrus.Error("error building gst: ", err)
 		r.result.Error = err.Error()
 		return r.result
-	}
-
-	// if using template, listen for START_RECORDING and END_RECORDING messages
-	if r.isTemplate {
-		logrus.Info("Waiting for room to start")
-		select {
-		case <-r.display.RoomStarted():
-			logrus.Info("Room started")
-		case <-r.abort:
-			r.pipeline.Abort()
-			logrus.Info("Recording aborted while waiting for room")
-			r.result.Error = "Recording aborted"
-			return r.result
-		}
-
-		// stop on END_RECORDING console log
-		go func(d *display.Display) {
-			<-d.RoomEnded()
-			r.Stop()
-		}(r.display)
 	}
 
 	var startedAt time.Time
@@ -160,29 +139,29 @@ func (r *Recorder) Run() *RecordingInfo {
 		r.result.File = &FileResult{
 			Duration: time.Since(startedAt).Milliseconds() / 1000,
 		}
-		if r.conf.FileOutput.S3 != nil {
+		if conf.FileOutput.S3 != nil {
 			if err = r.uploadS3(); err != nil {
 				r.result.Error = err.Error()
 				return r.result
 			}
-			r.result.File.DownloadUrl = fmt.Sprintf("s3://%s/%s", r.conf.FileOutput.S3.Bucket, r.filepath)
-		} else if r.conf.FileOutput.AzBlob != nil {
+			r.result.File.DownloadUrl = fmt.Sprintf("s3://%s/%s", conf.FileOutput.S3.Bucket, r.filepath)
+		} else if conf.FileOutput.AzBlob != nil {
 			if err = r.uploadAzure(); err != nil {
 				r.result.Error = err.Error()
 				return r.result
 			}
 			r.result.File.DownloadUrl = fmt.Sprintf(
 				"https://%s.blob.core.windows.net/%s/%s",
-				r.conf.FileOutput.AzBlob.AccountName,
-				r.conf.FileOutput.AzBlob.ContainerName,
+				conf.FileOutput.AzBlob.AccountName,
+				conf.FileOutput.AzBlob.ContainerName,
 				r.filepath,
 			)
-		} else if r.conf.FileOutput.GCPConfig != nil {
+		} else if conf.FileOutput.GCPConfig != nil {
 			if err = r.uploadGCP(); err != nil {
 				r.result.Error = err.Error()
 				return r.result
 			}
-			r.result.File.DownloadUrl = fmt.Sprintf("gs://%s/%s", r.conf.FileOutput.GCPConfig.Bucket, r.filepath)
+			r.result.File.DownloadUrl = fmt.Sprintf("gs://%s/%s", conf.FileOutput.GCPConfig.Bucket, r.filepath)
 		}
 	}
 
@@ -193,9 +172,9 @@ func (r *Recorder) createPipeline(req *StartRecordingRequest) (*gst.Pipeline, er
 	output := file
 	switch output {
 	case rtmp:
-		return gst.NewRtmpPipeline(req.Output.Rtmp.Urls, r.conf)
+		return gst.NewRtmpPipeline(req.Output.Rtmp.Urls)
 	case file:
-		return gst.NewFilePipeline("/out/demo.mp4", r.conf)
+		return gst.NewFilePipeline(r.filepath)
 	}
 	return nil, errors.New("no output")
 }

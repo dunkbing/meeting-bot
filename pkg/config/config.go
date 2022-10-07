@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"math/rand"
 	"os"
 	"strconv"
@@ -24,26 +25,20 @@ var validProfiles = map[string]bool{
 }
 
 type Config struct {
-	LogLevel   string      `yaml:"log_level"`
-	Insecure   bool        `yaml:"insecure"`
-	Redis      RedisConfig `yaml:"redis"`
-	FileOutput FileOutput  `yaml:"file_output"`
-	Defaults   Defaults    `yaml:"defaults"`
-	Display    string      `yaml:"-"`
+	LogLevel   string           `yaml:"log_level"`
+	FileOutput FileOutputConfig `yaml:"file_output"`
+	Screen     ScreenConfig     `yaml:"screen"`
+	Media      MediaConfig      `yaml:"media"`
+	Bot        BotConfig        `yaml:"bot"`
 }
 
-type RedisConfig struct {
-	Address  string `yaml:"address"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-	DB       int    `yaml:"db"`
-}
-
-type FileOutput struct {
+type FileOutputConfig struct {
 	Local     bool          `yaml:"local"`
 	S3        *S3Config     `yaml:"s3"`
-	AzBlob    *AzblobConfig `yaml:"azblob"`
+	AzBlob    *AzBlobConfig `yaml:"azblob"`
 	GCPConfig *GCPConfig    `yaml:"gcp"`
+	FileDir   string        `yaml:"file_dir"`
+	FileName  string        `yaml:"file_name"`
 }
 
 type S3Config struct {
@@ -54,7 +49,7 @@ type S3Config struct {
 	Bucket    string `yaml:"bucket"`
 }
 
-type AzblobConfig struct {
+type AzBlobConfig struct {
 	AccountName   string `yaml:"account_name"`
 	AccountKey    string `yaml:"account_key"`
 	ContainerName string `yaml:"container_name"`
@@ -64,10 +59,7 @@ type GCPConfig struct {
 	Bucket string `yaml:"bucket"`
 }
 
-type Defaults struct {
-	Width          int32  `yaml:"width"`
-	Height         int32  `yaml:"height"`
-	Depth          int32  `yaml:"depth"`
+type MediaConfig struct {
 	Framerate      int32  `yaml:"framerate"`
 	AudioBitrate   int32  `yaml:"audio_bitrate"`
 	AudioFrequency int32  `yaml:"audio_frequency"`
@@ -75,37 +67,63 @@ type Defaults struct {
 	Profile        string `yaml:"profile"`
 }
 
+type ScreenConfig struct {
+	Width    int32  `yaml:"width"`
+	Height   int32  `yaml:"height"`
+	Depth    int32  `yaml:"depth"`
+	Display  string `yaml:"-"`
+	Insecure bool   `yaml:"insecure"`
+}
+
+type BotConfig struct {
+	MeetingUrl string `yaml:"meeting_url"`
+	Username   string `yaml:"username"`
+	Type       string `yaml:"type"`
+}
+
 func (c *Config) initDisplay() error {
 	d := os.Getenv("DISPLAY")
 	if d != "" && strings.HasPrefix(d, ":") {
 		num, err := strconv.Atoi(d[1:])
 		if err == nil && num > 0 && num <= 2147483647 {
-			c.Display = d
+			c.Screen.Display = d
 			return nil
 		}
 	}
 
-	if c.Display == "" {
+	if c.Screen.Display == "" {
 		rand.Seed(time.Now().UnixNano())
-		c.Display = fmt.Sprintf(":%d", 10+rand.Intn(2147483637))
+		c.Screen.Display = fmt.Sprintf(":%d", 10+rand.Intn(2147483637))
 	}
 
 	// GStreamer uses display from env
-	if err := os.Setenv("DISPLAY", c.Display); err != nil {
+	if err := os.Setenv("DISPLAY", c.Screen.Display); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func NewConfig(confString string) (*Config, error) {
+var _config *Config
+var _configBody string
+
+func SetConfigBody(_conf string) {
+	_configBody = _conf
+}
+
+func GetConfig() (*Config, error) {
+	if _config != nil {
+		return _config, nil
+	}
 	// start with defaults
 	conf := &Config{
 		LogLevel: "info",
-		Defaults: Defaults{
-			Width:          1920,
-			Height:         1080,
-			Depth:          24,
+		Screen: ScreenConfig{
+			Width:  1920,
+			Height: 1080,
+			Depth:  24,
+		},
+		Media: MediaConfig{
 			Framerate:      30,
 			AudioBitrate:   128,
 			AudioFrequency: 44100,
@@ -114,8 +132,8 @@ func NewConfig(confString string) (*Config, error) {
 		},
 	}
 
-	if confString != "" {
-		if err := yaml.Unmarshal([]byte(confString), conf); err != nil {
+	if _configBody != "" {
+		if err := yaml.Unmarshal([]byte(_configBody), conf); err != nil {
 			return nil, fmt.Errorf("could not parse config: %v", err)
 		}
 	}
@@ -125,8 +143,8 @@ func NewConfig(confString string) (*Config, error) {
 		conf.FileOutput.Local = true
 	}
 
-	if !validProfiles[conf.Defaults.Profile] {
-		return nil, fmt.Errorf("invalid profile %s", conf.Defaults.Profile)
+	if !validProfiles[conf.Media.Profile] {
+		return nil, fmt.Errorf("invalid profile %s", conf.Media.Profile)
 	}
 
 	// GStreamer log level
@@ -135,10 +153,13 @@ func NewConfig(confString string) (*Config, error) {
 		switch conf.LogLevel {
 		case "debug":
 			gstDebug = 2
+			logrus.SetLevel(logrus.DebugLevel)
 		case "info", "warn", "error":
 			gstDebug = 1
+			logrus.SetLevel(logrus.InfoLevel)
 		case "panic":
 			gstDebug = 0
+			logrus.SetLevel(logrus.PanicLevel)
 		}
 		if err := os.Setenv("GST_DEBUG", fmt.Sprint(gstDebug)); err != nil {
 			return nil, err
@@ -146,19 +167,19 @@ func NewConfig(confString string) (*Config, error) {
 	}
 
 	err := conf.initDisplay()
+	_config = conf
 	return conf, err
 }
 
 func TestConfig() (*Config, error) {
 	conf := &Config{
 		LogLevel: "debug",
-		Redis: RedisConfig{
-			Address: "localhost:6379",
+		Screen: ScreenConfig{
+			Width:  1920,
+			Height: 1080,
+			Depth:  24,
 		},
-		Defaults: Defaults{
-			Width:          1920,
-			Height:         1080,
-			Depth:          24,
+		Media: MediaConfig{
 			Framerate:      30,
 			AudioBitrate:   128,
 			AudioFrequency: 44100,

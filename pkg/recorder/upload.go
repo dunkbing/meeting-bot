@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/dunkbing/meeting-bot/pkg/config"
 	"io"
 	"net/url"
 	"os"
@@ -22,20 +23,21 @@ import (
 // TODO: write to persistent volume, use separate upload process
 
 func (r *Recorder) uploadS3() error {
+	conf, _ := config.GetConfig()
 	sess, err := session.NewSession(&aws.Config{
 		Credentials: credentials.NewStaticCredentials(
-			r.conf.FileOutput.S3.AccessKey,
-			r.conf.FileOutput.S3.Secret,
+			conf.FileOutput.S3.AccessKey,
+			conf.FileOutput.S3.Secret,
 			"",
 		),
-		Endpoint: aws.String(r.conf.FileOutput.S3.Endpoint),
-		Region:   aws.String(r.conf.FileOutput.S3.Region),
+		Endpoint: aws.String(conf.FileOutput.S3.Endpoint),
+		Region:   aws.String(conf.FileOutput.S3.Region),
 	})
 	if err != nil {
 		return err
 	}
 
-	file, err := os.Open(r.filename)
+	file, err := os.Open(r.filepath)
 	if err != nil {
 		return err
 	}
@@ -49,7 +51,7 @@ func (r *Recorder) uploadS3() error {
 	}
 
 	_, err = s3.New(sess).PutObject(&s3.PutObjectInput{
-		Bucket:        aws.String(r.conf.FileOutput.S3.Bucket),
+		Bucket:        aws.String(conf.FileOutput.S3.Bucket),
 		Key:           aws.String(r.filepath),
 		Body:          bytes.NewReader(buffer),
 		ContentLength: aws.Int64(size),
@@ -60,9 +62,10 @@ func (r *Recorder) uploadS3() error {
 }
 
 func (r *Recorder) uploadAzure() error {
+	conf, _ := config.GetConfig()
 	credential, err := azblob.NewSharedKeyCredential(
-		r.conf.FileOutput.AzBlob.AccountName,
-		r.conf.FileOutput.AzBlob.AccountKey,
+		conf.FileOutput.AzBlob.AccountName,
+		conf.FileOutput.AzBlob.AccountKey,
 	)
 	if err != nil {
 		return err
@@ -72,15 +75,15 @@ func (r *Recorder) uploadAzure() error {
 
 	URL, _ := url.Parse(
 		fmt.Sprintf("https://%s.blob.core.windows.net/%s",
-			r.conf.FileOutput.AzBlob.AccountName,
-			r.conf.FileOutput.AzBlob.ContainerName,
+			conf.FileOutput.AzBlob.AccountName,
+			conf.FileOutput.AzBlob.ContainerName,
 		),
 	)
 
 	containerURL := azblob.NewContainerURL(*URL, p)
 
 	blobURL := containerURL.NewBlockBlobURL(r.filepath)
-	file, err := os.Open(r.filename)
+	file, err := os.Open(r.filepath)
 	if err != nil {
 		return err
 	}
@@ -96,6 +99,7 @@ func (r *Recorder) uploadAzure() error {
 }
 
 func (r *Recorder) uploadGCP() error {
+	conf, _ := config.GetConfig()
 	ctx := context.Background()
 	client, err := storage.NewClient(ctx)
 	if err != nil {
@@ -103,13 +107,13 @@ func (r *Recorder) uploadGCP() error {
 	}
 	defer client.Close()
 
-	file, err := os.Open(r.filename)
+	file, err := os.Open(r.filepath)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	wc := client.Bucket(r.conf.FileOutput.GCPConfig.Bucket).Object(r.filepath).NewWriter(ctx)
+	wc := client.Bucket(conf.FileOutput.GCPConfig.Bucket).Object(r.filepath).NewWriter(ctx)
 
 	if _, err = io.Copy(wc, file); err != nil {
 		return fmt.Errorf("io.Copy: %v", err)

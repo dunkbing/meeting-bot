@@ -54,10 +54,10 @@ var testRequests = []string{`
 `}
 
 func TestConfig(t *testing.T) {
-	conf, err := config.NewConfig(testConfig)
+	config.SetConfigBody(testConfig)
+	conf, err := config.GetConfig()
 	require.NoError(t, err)
-	require.Equal(t, "192.168.65.2:6379", conf.Redis.Address)
-	require.Equal(t, int32(320), conf.Defaults.Width)
-	require.Equal(t, int32(96), conf.Defaults.AudioBitrate)
-	require.Equal(t, config.ProfileHigh, conf.Defaults.Profile)
+	require.Equal(t, int32(320), conf.Screen.Width)
+	require.Equal(t, int32(96), conf.Media.AudioBitrate)
+	require.Equal(t, config.ProfileHigh, conf.Media.Profile)
 }

@@ -1,4 +1,4 @@
-FROM gstreamer:1.18.5-dev
+FROM dunkbing/meeting-bot:gst-1.18.5-dev
 
 ARG TARGETPLATFORM
 
@@ -18,7 +18,7 @@ COPY pkg/ pkg/
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then GOARCH=arm64; else GOARCH=amd64; fi && \
     CGO_ENABLED=1 GOOS=linux GOARCH=${GOARCH} GO111MODULE=on go build -a -o meeting-bot ./cmd/server
 
-FROM gstreamer:1.18.5-prod
+FROM dunkbing/meeting-bot:gst-1.18.5-prod
 
 ARG TARGETPLATFORM
 

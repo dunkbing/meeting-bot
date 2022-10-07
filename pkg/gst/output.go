@@ -4,6 +4,7 @@ package gst
 
 import (
 	"fmt"
+	"github.com/dunkbing/meeting-bot/pkg/config"
 	"github.com/lithammer/shortuuid/v3"
 	"github.com/sirupsen/logrus"
 	"github.com/tinyzimmer/go-gst/gst"
@@ -27,13 +28,20 @@ type RtmpOut struct {
 	sink  *gst.Element
 }
 
-func newFileOutputBin(filename string) (*OutputBin, error) {
+func newFileOutputBin(filepath string) (*OutputBin, error) {
+	conf, _ := config.GetConfig()
+	var ext string
+	if conf.Bot.Type == "video" {
+		ext = "mp4"
+	} else {
+		ext = "aac"
+	}
 	// create elements
 	sink, err := gst.NewElement("filesink")
 	if err != nil {
 		return nil, err
 	}
-	if err = sink.SetProperty("location", filename); err != nil {
+	if err = sink.SetProperty("location", fmt.Sprintf("%s.%s", filepath, ext)); err != nil {
 		return nil, err
 	}
 	if err = sink.SetProperty("sync", false); err != nil {
