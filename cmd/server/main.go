@@ -32,15 +32,11 @@ func main() {
 				EnvVars: []string{"RECORDING_REQUEST"},
 			},
 		},
-		Action:  run,
+		Action:  runRecorder,
 		Version: "1",
 	}
 
 	if err := app.Run(os.Args); err != nil {
 		fmt.Println(err)
 	}
-}
-
-func run(c *cli.Context) error {
-	return runRecorder(c)
 }

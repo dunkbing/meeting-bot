@@ -188,17 +188,17 @@ func newVideoInputBin(isStream bool) (*InputBin, error) {
 }
 
 func newAudioInputBin(isStream bool) (*InputBin, error) {
+	// create audio elements
 	audioElements, audioQueue, err := newAudioElements()
-	if err != nil {
-		return nil, err
-	}
-	mux, err := newMuxElement(isStream)
 
-	audioElements = append(audioElements, mux)
+	// create mux
+	mux, err := newMuxElement(isStream)
 
 	// create bin
 	bin := gst.NewBin("input")
 	err = bin.AddMany(audioElements...)
+	err = bin.Add(mux)
+
 	if err != nil {
 		return nil, err
 	}
@@ -232,21 +232,27 @@ func (b *InputBin) Link() error {
 	}
 
 	// link audio and video queues to mux
-	var muxAudioPad, muxVideoPad *gst.Pad
+	var muxAudioPad *gst.Pad
 	if b.isStream {
 		muxAudioPad = b.mux.GetRequestPad("audio")
-		muxVideoPad = b.mux.GetRequestPad("video")
 	} else {
 		muxAudioPad = b.mux.GetRequestPad("audio_%u")
-		muxVideoPad = b.mux.GetRequestPad("video_%u")
 	}
+
+	var muxVideoPad *gst.Pad
+	if b.videoQueue != nil {
+		if b.isStream {
+			muxVideoPad = b.mux.GetRequestPad("video")
+		} else {
+			muxVideoPad = b.mux.GetRequestPad("video_%u")
+		}
+	}
+
 	if err := requireLink(b.audioQueue.GetStaticPad("src"), muxAudioPad); err != nil {
-		fmt.Println("link audio err", err)
 		return err
 	}
 	if b.videoQueue != nil {
 		if err := requireLink(b.videoQueue.GetStaticPad("src"), muxVideoPad); err != nil {
-			fmt.Println("link video err")
 			return err
 		}
 	}

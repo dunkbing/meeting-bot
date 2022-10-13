@@ -7,6 +7,7 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"strings"
+	"time"
 )
 
 type MeetingType string
@@ -28,16 +29,26 @@ type Bot struct {
 }
 
 func (b *Bot) WaitForApproval(page *rod.Page) {
-	switch b.meetingType {
-	case GoogleMeet:
-		meetingDetailEle := ".r6xAKc"
-		page.MustElement(meetingDetailEle)
-	case Teams:
-		rosterBtn := "#roster-button"
-		page.MustElement(rosterBtn)
-	case Zoom:
-		numberCounter := ".footer-button__number-counter"
-		page.MustElement(numberCounter)
+	var i int
+	timeOut := time.Duration(30)
+	var ele *rod.Element
+	for start := time.Now(); time.Since(start) < time.Second*timeOut; {
+		switch b.meetingType {
+		case GoogleMeet:
+			meetingDetailEle := ".r6xAKc"
+			ele = page.MustElement(meetingDetailEle)
+		case Teams:
+			rosterBtn := "#roster-button"
+			ele = page.MustElement(rosterBtn)
+		case Zoom:
+			numberCounter := ".footer-button__number-counter"
+			ele = page.MustElement(numberCounter)
+		}
+		if ele != nil {
+			break
+		}
+		time.Sleep(time.Second)
+		i++
 	}
 }
 
@@ -62,8 +73,30 @@ func (b *Bot) JoinGoogleMeet() error {
 }
 
 func (b *Bot) JoinTeams() error {
+	team := "https://teams.microsoft.com"
+	live := "https://teams.live.com"
+	if strings.Contains(b.meetingUrl, "teams.live") {
+		b.meetingUrl = strings.Replace(b.meetingUrl, live, "", 1)
+		b.meetingUrl = fmt.Sprintf("%s/_#%s?anon=true", live, b.meetingUrl)
+	} else {
+		b.meetingUrl = strings.Replace(b.meetingUrl, team, "", 1)
+		b.meetingUrl = fmt.Sprintf("%s/_#%s&anon=true", team, b.meetingUrl)
+	}
+	fmt.Println(b.meetingUrl)
 	page := b.browser.MustPage(b.meetingUrl)
-	fmt.Println(page.String())
+	inputUsername := "#username"
+	inputUsernameEle := page.MustElement(inputUsername)
+
+	if strings.Contains(b.meetingUrl, "teams.live") {
+		// TODO: press enter to dismiss popup
+	}
+	inputUsernameEle.MustInput(b.meetingUsername)
+
+	joinBtn := ".join-btn"
+	page.MustElement(joinBtn).MustClick()
+
+	b.WaitForApproval(page)
+
 	return nil
 }
 
@@ -72,8 +105,6 @@ func (b *Bot) JoinZoom() error {
 	fmt.Println(page.String())
 	return nil
 }
-
-func (b *Bot) RecordScreen() {}
 
 func GetMeetingType(url string) MeetingType {
 	if strings.Contains(url, "zoom.us") {
@@ -99,10 +130,9 @@ func (b *Bot) Start() error {
 		return b.JoinTeams()
 	case Zoom:
 		return b.JoinZoom()
-	case InvalidMeeting:
-		b.RecordScreen()
+	default:
+		return nil
 	}
-	return nil
 }
 
 func New() *Bot {
