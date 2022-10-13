@@ -22,17 +22,27 @@ type Bot struct {
 	browser         *rod.Browser
 	meetingUrl      string
 	meetingUsername string
+	meetingType     MeetingType
 	meetingStarted  bool
 	meetingFinished bool
 }
 
-func (b *Bot) WaitForApproval() {
-
+func (b *Bot) WaitForApproval(page *rod.Page) {
+	switch b.meetingType {
+	case GoogleMeet:
+		meetingDetailEle := ".r6xAKc"
+		page.MustElement(meetingDetailEle)
+	case Teams:
+		rosterBtn := "#roster-button"
+		page.MustElement(rosterBtn)
+	case Zoom:
+		numberCounter := ".footer-button__number-counter"
+		page.MustElement(numberCounter)
+	}
 }
 
 func (b *Bot) JoinGoogleMeet() error {
 	page := b.browser.MustPage(b.meetingUrl)
-	fmt.Println(page.String())
 	inputUsernameXpath := "//input[@placeholder='Your name']"
 	page.MustElementX(inputUsernameXpath).MustInput(b.meetingUsername)
 	joinOptions := ".jtn8y"
@@ -45,6 +55,8 @@ func (b *Bot) JoinGoogleMeet() error {
 
 	askToJoinBtn := "//span[contains(text(), \"Ask to join\")]/parent::button"
 	page.MustElementX(askToJoinBtn).MustClick()
+
+	b.WaitForApproval(page)
 
 	return nil
 }
@@ -80,8 +92,7 @@ func GetMeetingType(url string) MeetingType {
 }
 
 func (b *Bot) Start() error {
-	type_ := GetMeetingType(b.meetingUrl)
-	switch type_ {
+	switch b.meetingType {
 	case GoogleMeet:
 		return b.JoinGoogleMeet()
 	case Teams:
@@ -147,6 +158,7 @@ func New() *Bot {
 		browser:         browser,
 		meetingUrl:      cfg.Bot.MeetingUrl,
 		meetingUsername: cfg.Bot.Username,
+		meetingType:     GetMeetingType(cfg.Bot.MeetingUrl),
 		meetingStarted:  false,
 		meetingFinished: false,
 	}
