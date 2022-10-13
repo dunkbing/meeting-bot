@@ -5,17 +5,11 @@ package display
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
+	"github.com/dunkbing/meeting-bot/pkg/config"
 	"github.com/sirupsen/logrus"
 	"os"
 	"os/exec"
-	"strings"
-
-	"github.com/chromedp/cdproto/runtime"
-	"github.com/chromedp/chromedp"
-	"github.com/dunkbing/meeting-bot/pkg/config"
 )
 
 const (
@@ -40,9 +34,6 @@ func Launch() (*Display, error) {
 	if err := d.launchXvfb(conf.Screen); err != nil {
 		return nil, err
 	}
-	if err := d.launchChrome(conf.Screen, conf.Bot.MeetingUrl); err != nil {
-		return nil, err
-	}
 
 	return d, nil
 }
@@ -56,95 +47,6 @@ func (d *Display) launchXvfb(screenConf config.ScreenConfig) error {
 	}
 	d.xvfb = xvfb
 	return nil
-}
-
-func (d *Display) launchChrome(screenConf config.ScreenConfig, url string) error {
-	//conf, _ := config.GetConfig()
-	width, height := screenConf.Width, screenConf.Height
-	logrus.Debug("launching chrome", "url", url)
-
-	opts := []chromedp.ExecAllocatorOption{
-		chromedp.NoFirstRun,
-		chromedp.NoDefaultBrowserCheck,
-		chromedp.DisableGPU,
-		chromedp.NoSandbox,
-
-		// puppeteer default behavior
-		chromedp.Flag("disable-infobars", true),
-		chromedp.Flag("excludeSwitches", "enable-automation"),
-		chromedp.Flag("disable-background-networking", true),
-		chromedp.Flag("enable-features", "NetworkService,NetworkServiceInProcess"),
-		chromedp.Flag("disable-background-timer-throttling", true),
-		chromedp.Flag("disable-backgrounding-occluded-windows", true),
-		chromedp.Flag("disable-breakpad", true),
-		chromedp.Flag("disable-client-side-phishing-detection", true),
-		chromedp.Flag("disable-default-apps", true),
-		chromedp.Flag("disable-dev-shm-usage", true),
-		chromedp.Flag("disable-extensions", true),
-		chromedp.Flag("disable-features", "site-per-process,TranslateUI,BlinkGenPropertyTrees"),
-		chromedp.Flag("disable-hang-monitor", true),
-		chromedp.Flag("disable-ipc-flooding-protection", true),
-		chromedp.Flag("disable-popup-blocking", true),
-		chromedp.Flag("disable-prompt-on-repost", true),
-		chromedp.Flag("disable-renderer-backgrounding", true),
-		chromedp.Flag("disable-sync", true),
-		chromedp.Flag("force-color-profile", "srgb"),
-		chromedp.Flag("metrics-recording-only", true),
-		chromedp.Flag("safebrowsing-disable-auto-update", true),
-		chromedp.Flag("password-store", "basic"),
-		chromedp.Flag("use-mock-keychain", true),
-
-		// custom args
-		chromedp.Flag("kiosk", true),
-		chromedp.Flag("enable-automation", false),
-		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
-		chromedp.Flag("window-position", "0,0"),
-		chromedp.Flag("window-size", fmt.Sprintf("%d,%d", width, height)),
-		chromedp.Flag("display", screenConf.Display),
-	}
-
-	if screenConf.Insecure {
-		opts = append(opts,
-			chromedp.Flag("disable-web-security", true),
-			chromedp.Flag("allow-running-insecure-content", true),
-		)
-	}
-
-	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
-	ctx, cancel := chromedp.NewContext(allocCtx)
-	d.chromeCancel = cancel
-
-	chromedp.ListenTarget(ctx, func(ev interface{}) {
-		switch ev := ev.(type) {
-		case *runtime.EventConsoleAPICalled:
-			args := make([]string, 0, len(ev.Args))
-			for _, arg := range ev.Args {
-				var val interface{}
-				err := json.Unmarshal(arg.Value, &val)
-				if err != nil {
-					continue
-				}
-				msg := fmt.Sprint(val)
-				args = append(args, msg)
-				switch msg {
-				case startRecording:
-					close(d.startChan)
-				case endRecording:
-					close(d.endChan)
-				default:
-				}
-			}
-			logrus.Debug(fmt.Sprintf("chrome console %s", ev.Type.String()), "msg", strings.Join(args, " "))
-		}
-	})
-
-	var err error
-	var errString string
-	err = chromedp.Run(ctx, chromedp.Navigate(url))
-	if err == nil && errString != "" {
-		err = errors.New(errString)
-	}
-	return err
 }
 
 func (d *Display) RoomStarted() chan struct{} {

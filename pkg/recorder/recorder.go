@@ -3,6 +3,7 @@ package recorder
 import (
 	"errors"
 	"fmt"
+	"github.com/dunkbing/meeting-bot/pkg/bot"
 	"github.com/sirupsen/logrus"
 	"sync"
 	"time"
@@ -98,6 +99,8 @@ func (r *Recorder) Run() *RecordingInfo {
 
 	// launch display
 	r.display, err = display.Launch()
+	b := bot.New()
+	err = b.Start()
 	if err != nil {
 		logrus.Error("error launching display", err)
 		r.result.Error = err.Error()
