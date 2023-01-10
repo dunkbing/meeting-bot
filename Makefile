@@ -19,9 +19,6 @@ GSTREAMER_VERSION = 1.18.5
 
 # Find out if the working directory is clean
 GIT_NOT_CLEAN_CHECK = $(shell git status --porcelain)
-#ifneq (x$(GIT_NOT_CLEAN_CHECK), x)
-#DOCKER_TAG_SUFFIX = "-dirty"
-#endif
 
 # If we're releasing to Docker Hub, and we're going to mark it with the latest tag, it should exactly match a version release
 ifeq ($(MAKECMDGOALS),release)
@@ -48,8 +45,6 @@ else
 DOCKER_TAG = $(GIT_COMMIT)
 endif
 
-#SOURCES := $(shell find src -name 'worker.py')
-
 help:
 	@echo "    build"
 	@echo "        Build a docker production image."
@@ -61,12 +56,6 @@ help:
 clean:
 	rm -fr ./bin
 	rm -fr ./out
-
-update-pip:
-	docker run --rm -v `pwd`/src:/workspace/src registry.gitlab.com/vaisawesome/product/memobot/memoagent:base pip-compile /workspace/src/requirements.in
-
-isort:
-	sh -c "isort --skip-glob=.tox --recursive src/ "
 
 docker-gstreamer:
 	docker build -t $(DOCKER_IMAGE):gst-$(GSTREAMER_VERSION)-base --build-arg GSTREAMER_VERSION=$(GSTREAMER_VERSION) -f build/gstreamer/Dockerfile-base ./build/gstreamer
@@ -87,7 +76,7 @@ docker-push:
 output:
 	@echo Docker Image: $(DOCKER_IMAGE):$(DOCKER_TAG)
 
-test:
-	go test --tags=test ./...
+run:
+	docker run --rm --name meeting-bot -e CONFIG_BODY="$(cat config.yaml)" -e RECORDING_REQUEST="$(cat request.json)" -v ~/meeting-bot/recordings:/data dunkbing/meeting-bot
 
 .PHONY: clean

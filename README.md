@@ -17,3 +17,14 @@ Following libraries used for the project:
 - [ ] Supports streaming audio. Need to integrate with live text asr
 - [ ] Auto stop if no one is in the meeting for 5 minutes
 - [ ] Auto stop if the meeting is ended
+
+### Building
+```bash
+make docker-gstreamer
+make docker-prod
+```
+
+### Running
+```bash
+docker run --rm --name meeting-bot -e CONFIG_BODY="$(cat config.yaml)" -v ~/meeting-bot/recordings:/data dunkbing/meeting-bot
+```

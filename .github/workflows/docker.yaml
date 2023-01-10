@@ -6,7 +6,7 @@ on:
   push:
     # only publish on version tags
     branches:
-      - 'main'
+      - 'release'
 jobs:
   docker:
     runs-on: ubuntu-latest

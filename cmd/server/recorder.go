@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"github.com/dunkbing/meeting-bot/pkg/config"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,6 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 
+	"github.com/dunkbing/meeting-bot/pkg/config"
 	"github.com/dunkbing/meeting-bot/pkg/recorder"
 )
 
